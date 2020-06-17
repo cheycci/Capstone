@@ -1,0 +1,336 @@
+---
+title: "capstone"
+author: "Sun Shaoyang"
+date: "5/13/2020"
+output: html_document 
+---
+```{r}
+library(car)
+library(corrplot)
+library(leaps)
+library(DAAG)
+library(lattice)
+library(foreign)
+library(MASS)
+require(stats)
+require(stats4)
+library(KernSmooth)
+library(fastICA)
+library(cluster)
+library(mgcv)
+library(rpart)
+library(pan)
+library(TTR)
+library(tis)
+library(forecast)
+library(xtable)
+library(stats)
+library(TSA)
+library(timeSeries)
+library(fUnitRoots)
+library(fBasics)
+library(tseries)
+library(timsac)
+library(TTR)
+library(fpp)
+library(strucchange)
+#library(MSBVAR)
+library(vars)
+library(lmtest)
+library(dlnm)
+library('KFAS')
+library('FKF')
+library(urca)
+library(psych)
+library(kableExtra)
+library(randomForest)
+```
+
+```{r}
+library(readxl)
+data <- read_excel("/Users/sunshaoyang/Desktop/data.xlsx")
+```
+
+```{r,results='asis'}
+summary(data)
+```
+
+```{r}
+#correlation of non-zero data
+ind=as.data.frame(data[,c("GDP","PMI","SP500","Unemploy", "1Month bill" , "PPI" ,"CPI")])
+c=cor(ind)
+corrplot(c,method="number",order="hclust")
+
+ind1=na.omit(data)
+ind1=ind1[,-1]
+c1=cor(ind1)
+corrplot(c1,method="number",order="hclust")
+
+#distribution of all independent variables
+allind=as.data.frame(data[,c("PMI","SP500","Unemploy", "1Month bill" , "PPI", "Retail","Trade Balance","10Year Tnote" ,"XAU/USD","CPI")])
+scatterplotMatrix(allind,  main = "Scatterplot Matrix")
+
+options(scipen=200)
+a=describe(data[,-1])
+a %>% kable()%>%kable_styling("striped")%>%row_spec(1:12,color = "black")
+
+```
+```{r}
+set.seed(100)
+datarf=na.omit(data)
+attach(datarf)
+rfmodel <- randomForest(GDP~PMI+SP500+Unemploy+`1Month bill`+PPI+Retail+`Trade Balance`+`10Year Tnote`+`XAU/USD`+CPI, data = datarf, ntree = 1000, importance = TRUE)
+import=importance(rfmodel)
+importance(rfmodel)
+varImpPlot(rfmodel)
+```
+
+```{r}
+ss=regsubsets(GDP~PMI+SP500+Unemploy+data$`1Month bill`+PPI+Retail+`Trade Balance`+`10Year Tnote`+`XAU/USD`+CPI,method=c("exhaustive"),nbest = 3,data=data)
+subsets(ss,statistic = "cp",legend = T, main="Mallows CP",col="blue")
+subsets(ss,statistic = "cp",legend = T, ylim=c(0,10),main="Mallows CP" ,col="blue")
+```
+
+```{r}
+ols=lm(GDP~SP500+PMI+Unemploy+`1Month bill`+PPI+CPI,data=data)
+all=as.data.frame(data[,c("GDP","SP500", "1Month bill" ,"PMI","Unemploy", "PPI", "CPI")])
+cvResults <- suppressWarnings(CVlm(all, form.lm=formula(ols), m=5, dots=FALSE, legend.pos="topleft",printit=TRUE, main="CV Outcomes"))
+```
+
+```{r}
+options(scipen=0)
+ols=lm(GDP~PMI+SP500+`1Month bill`+CPI+PPI+Retail+`Trade Balance`,data=data)
+summary(ols)
+a=vif(ols)
+a=as.data.frame(a)
+names(a)=c("VIF")
+a %>% kable()%>%kable_styling("striped")%>%row_spec(1:7,color = "black")
+b=summary(ols)
+kable(b$coefficients)%>%kable_styling("striped")%>%row_spec(1:8,color = "black")
+
+pred = predict(ols,newdata=datarf)
+plot(pred,type="l",xlab="Index",ylab="GDP",main="GDP prediction",bty="l",lwd=2)
+library(ggplot2)
+p <- ggplot(data=datarf,aes(x=datarf$GDP,y = pred))
+p + geom_line(aes(colour = GDP))  + labs(title = "GDP Prediction") +theme_classic() + theme_bw() +labs(x="GDP")
+```
+
+high R2 high vif  collinearity  timeseries var
+
+```{r}
+gdpts<-ts(data[,2],start=1950.1,freq=4)
+spts<-ts(data[,4],start=1950.1,freq=4)
+pmits<-ts(data[,5],start=1950.1,freq=4)
+unempts<-ts(data[,6],start=1950.1,freq=4)
+billts<-ts(data[,8],start=1950.1,freq=4)
+ppits<-ts(data[,9],start=1950.1,freq=4)
+cpits<-ts(data[,10],start=1950.1,freq=4)
+gdpts<-log(gdpts)
+spts<-log(spts)
+pmits<-log(pmits)
+unempts<-log(unempts)
+ppits<-log(ppits)
+cpits<-log(cpits)
+```
+
+```{r}
+plot(gdpts,ylim=c(2,10),ylab="log data")
+nberShade()
+lines(spts,col="steelblue")
+lines(cpits,col="darkgreen")
+lines(ppits,col="brown")
+legend("topright",legend=c("GDP","SP500","CPI","PPI"),text.col=c("black","steelblue","darkgreen","brown"),bty="n")
+```
+still not stable (432)
+```{r}
+urt.une=ur.df(unempts,type="trend",selectlags = 'AIC')
+summary(urt.une)
+```
+5% rejesct H0, no unit root, stationary
+
+```{r}
+grangertest(gdpts ~ unempts, order = 8)
+```
+reject H0. Unemployment is the granger causality of GDP.
+
+```{r}
+urt.unp=ur.df(pmits,type="trend",selectlags = 'AIC')
+summary(urt.unp)
+```
+order!
+
+```{r}
+grangertest(gdpts ~ pmits, order = 4)
+```
+```{r}
+urt.b=ur.df(billts,type="trend",selectlags = 'AIC')
+summary(urt.b)
+```
+cannot reject H0. need diff
+
+```{r}
+dgdp=diff(gdpts)
+dsp=diff(spts)
+dcpi=diff(cpits)
+dppi=diff(ppits)
+dbill=diff(billts)
+unempts=unempts[-1]
+pmits=pmits[-1]
+plot(dsp,ylab="log difference data")
+nberShade()
+lines(gdpts,col="steelblue")
+lines(dcpi,col="darkgreen")
+lines(dppi,col="brown")
+lines(dbill,col="orange")
+lines(unempts,col="coral")
+lines(pmits,col="orchid")
+legend("topright",legend=c("GDP","SP500","CPI","PPI","1month bill","unemployment","PMI"),text.col=c("steelblue","black","darkgreen","brown","orange","coral","orchid"),bty="n")
+pacf(dgdp,lag.max = 50)
+```
+```{r}
+y=cbind(dgdp,dsp,dbill,dcpi,dppi,unempts,pmits)
+y_tot=data.frame(y)
+VARselect(y_tot,lag.max = 10,type = "const")
+```
+
+```{r}
+y_model=VAR(y_tot,p=4)
+s=summary(y_model$varresult$dgdp)
+s
+kable(s$coefficients)%>%kable_styling("striped")%>%row_spec(1:29,color = "black")%>%row_spec(c(2,7,10,14,27,29),color = "brown")
+```
+get var model
+
+```{r}
+quartz()
+var.irf=irf(y_model)
+plot(var.irf)
+```
+
+```{r}
+png("picture.jpeg", height=1000,width=1000, res=100)
+plot(var.irf)
+dev.off()
+```
+
+comment
+```{r}
+c=predict(y_model,n.ahead=10,ci=0.95)
+c$fcst$dgdp %>% kable()%>%kable_styling("striped")%>%row_spec(1:10,color = "black")
+```
+
+```{r}
+quartz()
+plot(y_model)
+```
+
+Bayesian Model Averaging for generalized linear models.
+```{r}
+library(BMA)
+y=data$GDP
+x=data.frame(data[,-1:-3])
+x=na.omit(x)
+y=y[-73:-1]
+y=(y-mean(y))/sd(y)
+x$SP500=(x$SP500-mean(x$SP500))/sd(x$SP500)
+x$PMI=(x$PMI-mean(x$PMI))/sd(x$PMI)
+x$Unemploy=(x$Unemploy-mean(x$Unemploy))/sd(x$Unemploy)
+x$X10Year.Tnote=(x$X10Year.Tnote-mean(x$X10Year.Tnote))/sd(x$X10Year.Tnote)
+x$PPI=(x$PPI-mean(x$PPI))/sd(x$PPI)
+x$X1Month.bill=(x$X1Month.bill-mean(x$X1Month.bill))/sd(x$X1Month.bill)
+x$CPI=(x$CPI-mean(x$CPI))/sd(x$CPI)
+x$XAU.USD=(x$XAU.USD-mean(x$XAU.USD))/sd(x$XAU.USD)
+x$Retail=(x$Retail-mean(x$Retail))/sd(x$Retail)
+x$Trade.Balance=(x$Trade.Balance-mean(x$Trade.Balance))/sd(x$Trade.Balance)
+z=cbind(y,x)
+library(caret)
+idx2=createDataPartition(z$y,p=0.8,list = FALSE)
+train=data.frame(z[idx2,])
+trainx=data.frame(train[,-1])
+test=data.frame(z[-idx2,])
+testx=data.frame(test[,-1])
+
+glm.out1=bic.glm(trainx,train$y,strict=FALSE,glm.family=gaussian())
+d=summary(glm.out1)
+d %>% kable()%>%kable_styling("striped")%>%row_spec(1:15,color = "black")
+plot(glm.out1)
+#validation
+glm.out2=bic.glm(testx,test$y,strict=FALSE,glm.family=gaussian())
+summary(glm.out2)
+imageplot.bma(glm.out2,color = c("coral", "skyblue", "white"))
+g1pred=predict(glm.out1,newdata=z)
+plot(g1pred,type="l",xlab="Index",ylab="GDP",main="GDP prediction",bty="l",lwd=2)
+```
+
+```{r}
+library(survival)
+y=data$GDP
+y=y[-73:-1]
+x=data.frame(data[,-1:-3])
+x=na.omit(x)
+y=(y-min(y))/(max(y)-min(y))
+x$SP500=(x$SP500-min(x$SP500))/(max(x$SP500)-min(x$SP500))
+x$PMI=(x$PMI-min(x$PMI))/(max(x$PMI)-min(x$PMI))
+x$Unemploy=(x$Unemploy-min(x$Unemploy))/(max(x$Unemploy)-min(x$Unemploy))
+x$X10Year.Tnote=(x$X10Year.Tnote-min(x$X10Year.Tnote))/(max(x$X10Year.Tnote)-min(x$X10Year.Tnote))
+x$PPI=(x$PPI-min(x$PPI))/(max(x$PPI)-min(x$PPI))
+x$X1Month.bill=(x$X1Month.bill-min(x$X1Month.bill))/(max(x$X1Month.bill)-min(x$X1Month.bill))
+x$CPI=(x$CPI-min(x$CPI))/(max(x$CPI)-min(x$CPI))
+x$XAU.USD=(x$XAU.USD-min(x$XAU.USD))/(max(x$XAU.USD)-min(x$XAU.USD))
+x$Retail=(x$Retail-min(x$Retail))/(max(x$Retail)-min(x$Retail))
+x$Trade.Balance=(x$Trade.Balance-min(x$Trade.Balance))/(max(x$Trade.Balance)-min(x$Trade.Balance))
+z=cbind(y,x)
+idx2=createDataPartition(z$y,p=0.8,list = FALSE)
+train=data.frame(z[idx2,])
+trainx=data.frame(train[,-1])
+test=data.frame(z[-idx2,])
+testx=data.frame(test[,-1])
+
+glm.out3=bic.glm(trainx,train$y,glm.family = Gamma(link = "inverse"))
+e=summary(glm.out3)
+e %>% kable()%>%kable_styling("striped")%>%row_spec(1:15,color = "black")
+imageplot.bma(glm.out3,color = c("coral", "skyblue", "white"))
+
+g1fit<-HoltWinters(dgdp)
+g1pred<- predict(g1fit, 4, prediction.interval = TRUE,level=0.5)
+plot(g1fit,g1pred)
+lines(predict(g1fit),lwd=1.5, col='blue')
+
+#validation
+glm.out4=bic.glm(testx,test$y,strict=FALSE,glm.family = Gamma(link = "inverse"))
+summary(glm.out4)
+f=summary(glm.out4)
+f %>% kable()%>%kable_styling("striped")%>%row_spec(1:15,color = "black")
+imageplot.bma(glm.out4,color = c("coral", "skyblue", "white"))
+g1pred=predict(glm.out3,newdata=z)
+plot(g1pred,type="l",xlab="Index",ylab="GDP",main="GDP prediction",bty="l",lwd=2)
+```
+
+Bayesian Model Averaging for linear regression models.
+```{r}
+y=data$GDP
+x=data.frame(data[,-1:-3])
+z=cbind(y,x)
+idx2=createDataPartition(z$y,p=0.8,list = FALSE)
+train=data.frame(z[idx2,])
+trainx=data.frame(train[,-1])
+test=data.frame(z[-idx2,])
+testx=data.frame(test[,-1])
+
+
+lma1=bicreg(trainx,train$y,strict=FALSE,OR=20)
+f=summary(lma1)
+f %>% kable()%>%kable_styling("striped")%>%row_spec(1:16,color = "black")
+imageplot.bma(lma1,color = c("coral", "skyblue", "white"))
+
+```
+
+
+
+
+
+
+
+
+
+
